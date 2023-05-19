@@ -1,12 +1,15 @@
 mod external;
+mod event;
 use crate::external::*;
+use crate::event::*;
 
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
 use near_sdk::json_types::{U128, U64};
 use near_sdk::{AccountId, Balance, Gas, Promise, PromiseError, PanicOnDefault, near_bindgen};
+use near_sdk::{BorshStorageKey, CryptoHash};
 use near_sdk::{log, require, env};
 use near_sdk::ext_contract;
-use near_sdk::collections::UnorderedMap;
+use near_sdk::collections::{UnorderedMap, LookupMap};
 use near_contract_standards::fungible_token::core::ext_ft_core;
 
 const TGAS: u64 = 1_000_000_000_000;
@@ -17,7 +20,8 @@ const VOTE_PERIOD: u64 = 24 * 3600 * SECONDS;
 #[derive(BorshDeserialize, BorshSerialize, PanicOnDefault)]
 pub struct Vote{
     votes_proposal: UnorderedMap<u64, Balance>,
-    votes_available: UnorderedMap<AccountId, Balance>,
+    total_votes_with_account: UnorderedMap<AccountId, Balance>,
+    votes_proposal_with_account: LookupMap<AccountId, UnorderedMap<u64, Balance>>,
     total_votes: Balance,
     proposals: UnorderedMap<u64, String>,
     result: Option<u64>,
@@ -29,6 +33,12 @@ pub struct Vote{
 
 pub enum Status{
     Init, Voting, End
+}
+
+#[derive(BorshStorageKey, BorshSerialize)]
+pub enum StorageKeys {
+    Accounts,
+    SubAccount { account_hash: CryptoHash},
 }
 
 #[ext_contract(ext_vote)]
@@ -46,7 +56,8 @@ impl Vote {
         assert!(!env::state_exists(), "The contract is already initialized");
         Self {
             votes_proposal: UnorderedMap::new(b"d"),
-            votes_available: UnorderedMap::new(b"d"),
+            total_votes_with_account: UnorderedMap::new(b"d"),
+            votes_proposal_with_account: LookupMap::new(StorageKeys::Accounts),
             total_votes: 0,
             proposals: UnorderedMap::new(b"d"),
             result: None,
@@ -71,6 +82,15 @@ impl Vote {
     pub fn end(&mut self)-> Promise {
         self.is_voting = false;
         // NFT Connecting
+        let vote_end_log: EventLog = EventLog {
+            event: EventLogVariant::VoteEnd(vec![VoteEndLog{
+                contract_account_id: env::current_account_id().to_string(),
+                result: self.result.unwrap(),
+            }])
+        };
+
+        env::log_str(&vote_end_log.to_string());
+
         ext_vote_controller::ext(self.vote_controller_account_id.clone())
         .with_static_gas(Gas(5*TGAS))
         .end_voting(self.community_account_id.clone())
@@ -85,7 +105,7 @@ impl Vote {
 
     pub fn register(&mut self)->Promise{
         let signer : AccountId = env::signer_account_id();
-        let is_register: Option<Balance> = self.votes_available.get(&signer);
+        let is_register: Option<Balance> = self.total_votes_with_account.get(&signer);
         require!(is_register == None, "Already Registered");
 
         ext_ft_core::ext(self.community_account_id.clone())
@@ -103,7 +123,7 @@ impl Vote {
             return
         } else {
             let signer = env::signer_account_id();
-            self.votes_available.insert(&signer, &balance_result.unwrap());
+            self.total_votes_with_account.insert(&signer, &balance_result.unwrap());
         }
     }
 
@@ -114,13 +134,23 @@ impl Vote {
             return
         }
 
-        let signer_id : AccountId = env::predecessor_account_id();
-        let is_account_registered: Option<Balance> = self.votes_available.get(&signer_id);
-        require!( Some(is_account_registered) != None , "Not registered account");
-
         let num_proposal : u64 = self.proposals.len();
         let proposal = u64::from(proposal.0);
         require!(proposal <= num_proposal, "Not Validate Proposal ID");
+    }
+
+    #[private]
+    pub fn vote_callback(&mut self, proposal : U64, amount: Balance , #[callback_result] call_result: Result<U128, PromiseError>) -> bool{
+        // Bound to restrict voter by the balances owned
+        
+        // Check Signer Balance for Votes
+        let signer_balance = call_result.unwrap();
+        let signer_id : AccountId = env::signer_account_id();
+        let is_account_registered: Option<Balance> = self.total_votes_with_account.get(&signer_id);
+        // require!( Some(is_account_registered) != None , "Not registered account");
+        require!(is_account_registered.unwrap_or(0)+amount < u128::from(signer_balance.0), "Signer votes too more than his own");
+
+        let proposal = u64::from(proposal.0);
 
         // Votes to Proposal
         let current_proposal_votes = self.votes_proposal.get(&proposal).unwrap_or(0);
@@ -128,9 +158,20 @@ impl Vote {
         self.votes_proposal.insert(&proposal, &(added_proposal_votes));
         
         // Adding Total Votes with signer account
-        let votes_available_with_signer: u128 = is_account_registered.unwrap();
-        require!(votes_available_with_signer > amount, "Not enough votes");
-        self.votes_available.insert(&signer_id, &(votes_available_with_signer-amount));
+        let total_votes_with_signer: u128 = is_account_registered.unwrap();
+        require!(total_votes_with_signer > amount, "Not enough votes");
+        self.total_votes_with_account.insert(&signer_id, &(total_votes_with_signer+amount));
+
+        // Adding Total votes with signer account to Proposal
+        let mut proposal_with_account = self.votes_proposal_with_account.get(&signer_id)
+        .unwrap_or_else(|| {
+            UnorderedMap::new(StorageKeys::SubAccount {
+                account_hash: env::sha256_array(signer_id.as_bytes()),
+            })
+        });
+        
+        let proposal_votes_with_account = proposal_with_account.get(&proposal).unwrap_or(0);
+        proposal_with_account.insert(&proposal, &( proposal_votes_with_account + amount));
 
         // Adding total votes for this contract.
         self.total_votes += amount;
@@ -144,11 +185,7 @@ impl Vote {
                 self.result = Some(proposal);
             }
         }
-    }
 
-    #[private]
-    pub fn vote_callback(&mut self, #[callback_result] call_result: Result<U128, PromiseError>) -> bool{
-        // Bound to restrict voter by the balances owned
         return false;
     }
 
@@ -180,7 +217,7 @@ impl Vote {
     }
 
     pub fn get_votes_available(&self, account_id : AccountId) -> U128{
-        U128( self.votes_available.get(&account_id).unwrap_or(0) )
+        U128( self.total_votes_with_account.get(&account_id).unwrap_or(0) )
     }
 
     pub fn get_is_voting(&self) -> bool{
