@@ -244,6 +244,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "content"
+version = "0.1.0"
+dependencies = [
+ "near-contract-standards",
+ "near-sdk",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "contentFactory"
+version = "0.1.0"
+dependencies = [
+ "near-contract-standards",
+ "near-sdk",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "convert_case"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -862,6 +882,16 @@ dependencies = [
  "cc",
  "cfg-if 0.1.10",
  "rand 0.7.3",
+]
+
+[[package]]
+name = "platformtoken"
+version = "0.1.0"
+dependencies = [
+ "near-contract-standards",
+ "near-sdk",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

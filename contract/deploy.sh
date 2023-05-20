@@ -24,7 +24,8 @@ if [ -d "$DIRECTORY" ];then
 fi
 
 # near dev-deploy --wasmFile ./target/wasm32-unknown-unknown/release/hello_near.wasm | tee -a deploy.log
-near dev-deploy --wasmFile ./target/wasm32-unknown-unknown/release/voteController.wasm | tee -a deploy.log
+near dev-deploy --wasmFile ./target/wasm32-unknown-unknown/release/vote.wasm | tee -a deploy.log
+# near dev-deploy --wasmFile ./target/wasm32-unknown-unknown/release/voteController.wasm | tee -a deploy.log
 # near dev-deploy --wasmFile ./target/wasm32-unknown-unknown/release/community.wasm | tee -a deploy.log
 # near dev-deploy --wasmFile ./target/wasm32-unknown-unknown/release/content.wasm | tee -a deploy.log
 
