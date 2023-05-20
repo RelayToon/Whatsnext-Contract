@@ -67,8 +67,8 @@ impl Contract {
             total_supply,
             FungibleTokenMetadata {
                 spec: FT_METADATA_SPEC.to_string(),
-                name: "AiCO_Practice".to_string(),
-                symbol: "AiCOPR".to_string(),
+                name: "NEXTTOKEN".to_string(),
+                symbol: "NEXT".to_string(),
                 icon: Some(DATA_IMAGE_SVG_NEAR_ICON.to_string()),
                 reference: None,
                 reference_hash: None,
